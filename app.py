@@ -1,8 +1,11 @@
 import streamlit as st
 
-# Main title
-st.title("Hello World! 🎈")
+st.title("Interactive Input App 💬")
 
-# Display simple text
-st.write("Welcome to my first Streamlit web application!")
+# Create a text input widget
+user_text = st.text_input("Type something here:")
+
+# Display the output when text is entered
+if user_text:
+    st.write(f"You typed: **{user_text}**")
 
