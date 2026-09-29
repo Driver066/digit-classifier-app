@@ -1,3 +1,4 @@
+import hashlib
 import os
 import joblib
 import numpy as np
@@ -37,11 +38,17 @@ STANDARD_MODEL_PATH = "models/svc_mnist_digit_classifier.joblib"
 HIGH_PREC_MODEL_PATH = "models/svc_mnist_digit_classifier_58k.joblib"
 
 
-# @st.cache_resource caches both models in RAM so switching between them is instant
 @st.cache_resource
-def load_classifier(model_path):
-    """Loads a pre-trained Multi-class SVC model from disk."""
+def _load_classifier(model_path, model_signature):
+    """Cache each model revision, not just its filename."""
     return joblib.load(model_path)
+
+
+def load_classifier(model_path):
+    # A deployment can replace a model without changing its path or this code.
+    with open(model_path, "rb") as model_file:
+        model_signature = hashlib.sha256(model_file.read()).hexdigest()
+    return _load_classifier(model_path, model_signature)
 
 
 # Helper function to find a model file in 'models/' or root directory
@@ -84,6 +91,11 @@ if selected_path and os.path.exists(selected_path):
     estimator = load_classifier(selected_path)
 else:
     st.error("No valid model file found! Please verify your model path.")
+    st.stop()
+
+labels = estimator.classes_.tolist()
+supported_digits = ", ".join(str(digit) for digit in labels)
+st.sidebar.caption(f"Recognizes digits: {supported_digits}")
 
 
 # ==============================================================================
@@ -138,7 +150,7 @@ def center_digit_image(img_28x28):
 # ==============================================================================
 # 5. USER INTERFACE (CANVAS & BUTTONS)
 # ==============================================================================
-st.write("Draw a single digit (0-9) below:")
+st.write(f"Draw a single digit ({supported_digits}) below:")
 
 canvas_result = st_canvas(
     fill_color="rgba(255, 255, 255, 0)",
@@ -180,9 +192,12 @@ if predict_clicked:
 
         df_test_features = final_28x28.reshape(1, -1)
 
-        labels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         predicted_class = estimator.predict(df_test_features)[0]
         decision_scores = estimator.decision_function(df_test_features)[0]
+        # SVC score columns follow classes_, which need not be digits 0-9.
+        if len(labels) == 2 and np.ndim(decision_scores) == 0:
+            decision_scores = [-decision_scores, decision_scores]
+        scores_by_digit = dict(zip(labels, decision_scores))
 
         st.success(f"### Predicted Digit: **{predicted_class}**")
 
@@ -195,12 +210,11 @@ if predict_clicked:
             st.write("**Decision Scores:**")
             best_digit = int(predicted_class)
             st.write(
-                f"Top Digit ({best_digit}) Score: `{decision_scores[best_digit]:.3f}`"
+                f"Top Digit ({best_digit}) Score: `{scores_by_digit[best_digit]:.3f}`"
             )
 
         with st.expander("See All Class Decision Scores"):
-            for digit in labels:
-                score = decision_scores[digit]
+            for digit, score in scores_by_digit.items():
                 st.write(f"**Digit {digit}:** Score = `{score:.3f}`")
     else:
         st.warning("Please draw a digit on the canvas before predicting.")
